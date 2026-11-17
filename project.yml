@@ -1,0 +1,50 @@
+name: DGXChat
+options:
+  bundleIdPrefix: dev.alexyak
+  deploymentTarget:
+    iOS: "26.0"
+    macOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  DGXChat:
+    type: application
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - App
+      - Models
+      - Services
+      - Views
+      - Tools
+      - Assets.xcassets
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Sparkle
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        # Expose the app's Documents folder in the Files app
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        # Allow cleartext HTTP to the LLM server on the LAN
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsArbitraryLoadsInWebContent: true
+        NSLocalNetworkUsageDescription: "Sparkle connects to your LLM server on the local network."
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ZZ677HHXGU
+        # The sandbox entitlements apply to the Mac build only.
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": DGXChatMac.entitlements
