@@ -1,6 +1,6 @@
 # Sparkle
 
-SwiftUI iPad/iOS client for a local LLM served any OpenAI-compatible server over the LAN.
+SwiftUI iPad/iOS/MacOS client for a local LLM served any OpenAI-compatible server over the LAN.
 Phase one: chat harness with streaming, conversation history, tool calling, and settings.
 
 ## Screenshots
