@@ -84,7 +84,7 @@ struct MessageBubble: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background {
                                 RoundedRectangle(cornerRadius: 14)
-                                    .fill(Color.appSecondaryBackground)
+                                    .fill(Color.appAssistantBubbleBackground)
                                     .opacity(backgroundOn ? 1 : 0)
                                     .animation(.easeOut(duration: 0.4), value: backgroundOn)
                             }

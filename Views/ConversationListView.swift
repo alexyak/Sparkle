@@ -4,6 +4,9 @@ import SwiftData
 struct ConversationListView: View {
     let conversations: [Conversation]
     @Binding var selected: Conversation?
+    /// The chat search query, owned by the root so the search field can sit in
+    /// either column.
+    @Binding var searchText: String
     @Environment(\.modelContext) private var modelContext
     /// True when the split view is collapsed into a stack (iPhone, Slide Over).
     /// Passed in from the root because a sidebar column reports its own, narrower
@@ -12,7 +15,6 @@ struct ConversationListView: View {
     @State private var saveError: String?
     /// Ids of the groups the user has collapsed; everything starts expanded.
     @State private var collapsedGroups: Set<String> = []
-    @State private var searchText = ""
     @State private var searchResults: [SearchResult] = []
 
     private var trimmedQuery: String {
@@ -27,7 +29,9 @@ struct ConversationListView: View {
                 searchResultList
             }
         }
-        .searchable(text: $searchText, placement: .sidebar, prompt: "Search all chats")
+        // In a regular-width layout the search field lives in the chat view's
+        // toolbar instead (see RootView); the query is shared through the binding.
+        .chatSearch(text: $searchText, isEnabled: isCollapsed)
         .task(id: trimmedQuery) {
             // Debounce typing, then scan titles and message text.
             guard !trimmedQuery.isEmpty else {
@@ -38,7 +42,10 @@ struct ConversationListView: View {
             guard !Task.isCancelled else { return }
             searchResults = search(trimmedQuery)
         }
-        .navigationTitle("Chats")
+        #if os(iOS)
+        // No title, so don't reserve the large-title area above the list.
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .task { SessionLog.prepare(conversations) }
         .alert("Unable to Save Changes", isPresented: Binding(
             get: { saveError != nil },
@@ -291,6 +298,25 @@ struct ConversationListView: View {
             try modelContext.save()
         } catch {
             saveError = error.localizedDescription
+        }
+    }
+}
+
+extension View {
+    /// Adds the "Search all chats" field as a toolbar search that collapses to a
+    /// button until tapped. A no-op when `isEnabled` is false, so a layout can
+    /// choose which column hosts the field.
+    @ViewBuilder
+    func chatSearch(text: Binding<String>, isEnabled: Bool) -> some View {
+        if isEnabled {
+            #if os(macOS)
+            searchable(text: text, placement: .toolbar, prompt: "Search all chats")
+            #else
+            searchable(text: text, placement: .toolbar, prompt: "Search all chats")
+                .searchToolbarBehavior(.minimize)
+            #endif
+        } else {
+            self
         }
     }
 }

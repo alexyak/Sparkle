@@ -8,6 +8,7 @@ struct RootView: View {
     @AppStorage("selectedConversationID") private var selectedConversationID = ""
     @State private var selectedConversation: Conversation?
     @State private var showSettings = false
+    @State private var searchText = ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var didRestoreSelection = false
     @State private var persistenceError: String?
@@ -19,30 +20,63 @@ struct RootView: View {
     private let isCollapsed = false
     #endif
 
+    private var settingsButton: some View {
+        Button {
+            showSettings = true
+        } label: {
+            Label("Settings", systemImage: "gearshape")
+        }
+    }
+
+    private var newChatButton: some View {
+        Button {
+            newConversation()
+        } label: {
+            Label("New Chat", systemImage: "square.and.pencil")
+        }
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             ConversationListView(conversations: conversations,
                                  selected: $selectedConversation,
+                                 searchText: $searchText,
                                  isCollapsed: isCollapsed)
                 .navigationSplitViewColumnWidth(min: 240, ideal: 280)
                 .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            newConversation()
-                        } label: {
-                            Label("New Chat", systemImage: "square.and.pencil")
+                    #if os(iOS)
+                    // Compact width: search on the left of the bottom bar, New Chat
+                    // on the right. They're declared together so the spacer can
+                    // separate them. Regular width puts both in the chat view.
+                    if isCollapsed {
+                        DefaultToolbarItem(kind: .search, placement: .bottomBar)
+                        ToolbarSpacer(.flexible, placement: .bottomBar)
+                        ToolbarItem(placement: .bottomBar) {
+                            newChatButton
                         }
                     }
+                    #endif
                     ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            showSettings = true
-                        } label: {
-                            Label("Settings", systemImage: "gearshape")
-                        }
+                        ModelPicker()
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        settingsButton
                     }
                 }
         } detail: {
             detailContent
+                // Regular width: New Chat at the far left of the chat view and
+                // the collapsible search at the far right. Results show in the
+                // sidebar, which reads the same query.
+                .chatSearch(text: $searchText, isEnabled: !isCollapsed)
+                .toolbar {
+                    if !isCollapsed {
+                        ToolbarItem(placement: .navigation) {
+                            newChatButton
+                        }
+                        DefaultToolbarItem(kind: .search, placement: .primaryAction)
+                    }
+                }
                 // Hairline divider between the sidebar and the detail column,
                 // running the full height including under the navigation bars.
                 .overlay(alignment: .leading) {

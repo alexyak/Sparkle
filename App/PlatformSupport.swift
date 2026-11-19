@@ -33,7 +33,7 @@ extension Color {
         #if os(macOS)
         Color(nsColor: .windowBackgroundColor)
         #else
-        Color(.systemGroupedBackground)
+        Color(.systemBackground)
         #endif
     }
 
@@ -41,7 +41,16 @@ extension Color {
         #if os(macOS)
         Color(nsColor: .controlBackgroundColor)
         #else
-        Color(.secondarySystemBackground)
+        Color(.secondarySystemBackground).opacity(0.7)
+        #endif
+    }
+
+    /// Assistant answer bubble: blends into the chat background on iOS.
+    static var appAssistantBubbleBackground: Color {
+        #if os(macOS)
+        Color(nsColor: .controlBackgroundColor)
+        #else
+        Color(.systemBackground)
         #endif
     }
 

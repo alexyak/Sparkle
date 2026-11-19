@@ -612,7 +612,7 @@ struct TableBlockView: View {
             }
         }
         .padding(10)
-        .background(Color.appTertiaryBackground, in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.appSecondaryBackground, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func frameAlignment(_ column: Int) -> Alignment {

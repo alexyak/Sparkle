@@ -110,18 +110,17 @@ struct ChatView: View {
         // Links to files the assistant saved open in an in-app preview (the file
         // sits in the app's sandbox, out of reach of the default browser).
         .opensSavedFilesInPreview()
-        .navigationTitle($conversation.title)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                ModelPicker(viewModel: viewModel)
-            }
-        }
+        #if os(iOS)
+        // No title (so no title menu with "Rename"); don't reserve the large-title area.
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .onAppear {
             viewModel.configure(from: conversation, in: modelContext)
         }
         // Reload the model list on appear and whenever the active endpoint
-        // changes. URL/key edits don't trigger it (no requests while typing);
-        // use "Refresh models" or Settings' "Test Connection" after editing.
+        // changes (the picker in the sidebar keeps its own copy). URL/key edits
+        // don't trigger it (no requests while typing); use "Refresh models" or
+        // Settings' "Test Connection" after editing.
         // Errors stay silent so an alert can't dismiss the Settings sheet.
         .task(id: AppSettings.shared.activeEndpointID) {
             await viewModel.loadModels(reportErrors: false)

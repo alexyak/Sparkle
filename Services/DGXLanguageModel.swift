@@ -142,7 +142,7 @@ struct DGXLanguageModelExecutor: LanguageModelExecutor {
     // MARK: Transcript → OpenAI messages
 
     /// Maps each transcript entry onto the chat roles the server understands.
-    /// Reasoning entries are dropped: OpenAI-style servers don't accept them back.
+    /// Reasoning and data entries are dropped: OpenAI-style servers don't accept them back.
     private static func messages(from transcript: Transcript) throws -> [APIMessage] {
         var messages: [APIMessage] = []
         for entry in transcript {
@@ -153,7 +153,7 @@ struct DGXLanguageModelExecutor: LanguageModelExecutor {
                 messages.append(APIMessage(role: "user", content: text(of: prompt.segments)))
             case .response(let response):
                 messages.append(APIMessage(role: "assistant", content: text(of: response.segments)))
-            case .reasoning:
+            case .reasoning, .data:
                 continue
             case .toolCalls(let toolCalls):
                 let calls = toolCalls.map {
@@ -165,6 +165,8 @@ struct DGXLanguageModelExecutor: LanguageModelExecutor {
             case .toolOutput(let output):
                 messages.append(APIMessage(role: "tool", content: text(of: output.segments),
                                            toolCallId: output.id))
+            @unknown default:
+                continue // entry kinds added by newer SDKs have no chat-role equivalent
             }
         }
         return messages

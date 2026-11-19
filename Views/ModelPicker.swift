@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// Toolbar menu for switching the server endpoint and the model on it.
+/// Toolbar menu for switching the server endpoint and the model on it. Shown as
+/// an icon; the current model's name is its accessibility label and help text.
 struct ModelPicker: View {
-    let viewModel: ChatViewModel
+    // Owns its own model list so the picker works outside a chat (the sidebar).
+    @State private var viewModel = ChatViewModel()
     private let settings = AppSettings.shared
 
     /// The on-device model's id is "apple"; show its real name.
@@ -46,8 +48,17 @@ struct ModelPicker: View {
                 Task { await viewModel.loadModels() }
             }
         } label: {
-            Text(settings.modelID.isEmpty ? "Model" : displayName(for: settings.modelID))
-                .lineLimit(1)
+            Label(currentName, systemImage: "cpu")
         }
+        .help(currentName)
+        // Load the list on appear and whenever the active endpoint changes.
+        // Errors stay silent so an alert can't dismiss the Settings sheet.
+        .task(id: settings.activeEndpointID) {
+            await viewModel.loadModels(reportErrors: false)
+        }
+    }
+
+    private var currentName: String {
+        settings.modelID.isEmpty ? "Model" : displayName(for: settings.modelID)
     }
 }
