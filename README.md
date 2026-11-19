@@ -3,6 +3,16 @@
 SwiftUI iPad/iOS client for a local LLM served any OpenAI-compatible server over the LAN.
 Phase one: chat harness with streaming, conversation history, tool calling, and settings.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/iphone-1.png" alt="Sparkle on iPhone: chat" width="260">
+  <img src="docs/screenshots/iphone-2.png" alt="Sparkle on iPhone" width="260">
+</p>
+<p align="center">
+  <img src="docs/screenshots/ipad-1.png" alt="Sparkle on iPad: sidebar and chat" width="720">
+</p>
+
 ## Requirements
 - Xcode 27 (built with Xcode 27.1), iOS 26+ deployment target
 - An OpenAI-compatible server on the Spark (vLLM, llama.cpp `llama-server`, Ollama's OpenAI endpoint, LM Studio, …)
