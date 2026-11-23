@@ -43,7 +43,6 @@ struct ConversationListView: View {
             searchResults = search(trimmedQuery)
         }
         #if os(iOS)
-        // No title, so don't reserve the large-title area above the list.
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .task { SessionLog.prepare(conversations) }

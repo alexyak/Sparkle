@@ -200,25 +200,16 @@ struct ThinkingIndicator: View {
     /// Live reasoning line; replaces `label` (single line, truncated) when set.
     var detail: String = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var phase = false
 
     var body: some View {
         HStack(spacing: 8) {
             if reduceMotion {
                 ProgressView().controlSize(.small)
             } else {
-                HStack(spacing: 4) {
-                    ForEach(0..<3) { index in
-                        Circle()
-                            .fill(.secondary)
-                            .frame(width: 6, height: 6)
-                            .scaleEffect(phase && index == 1 ? 1.3 : 0.8)
-                            .opacity(phase ? 1 : 0.4)
-                            .animation(.easeInOut(duration: 0.5)
-                                .repeatForever(autoreverses: true)
-                                .delay(Double(index) * 0.15), value: phase)
-                    }
-                }
+                Image(systemName: "sparkles")
+                    .font(.title3)
+                    .foregroundStyle(.purple.gradient)
+                    .symbolEffect(.variableColor.iterative.dimInactiveLayers, isActive: true)
             }
             Group {
                 if detail.isEmpty {
@@ -231,7 +222,57 @@ struct ThinkingIndicator: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            .textShimmer(isActive: !reduceMotion)
         }
-        .onAppear { phase = true }
+    }
+}
+
+struct TextShimmerModifier: ViewModifier {
+    var active: Bool = true
+    var duration: Double = 1.5
+    var bounce: Bool = false
+
+    @State private var phase: CGFloat = -1.0
+
+    func body(content: Content) -> some View {
+        if active {
+            content
+                .overlay {
+                    GeometryReader { geometry in
+                        let width = geometry.size.width
+                        LinearGradient(
+                            stops: [
+                                .init(color: .clear, location: 0.0),
+                                // Adaptive: white in dark mode, black in light mode, so the
+                                // sweep contrasts with the secondary-colored text in both.
+                                .init(color: Color.primary, location: 0.5),
+                                .init(color: .clear, location: 1.0)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: width * 0.8)
+                        .offset(x: phase * width * 1.8)
+                        .blendMode(.sourceAtop) // Only draws over non-transparent pixels
+                    }
+                }
+                .mask(content) // Clips the shimmer strictly to the text glyphs
+                .onAppear {
+                    withAnimation(
+                        .linear(duration: duration)
+                        .repeatForever(autoreverses: bounce)
+                    ) {
+                        phase = 1.0
+                    }
+                }
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    func textShimmer(isActive: Bool = true, duration: Double = 1.5) -> some View {
+        modifier(TextShimmerModifier(active: isActive, duration: duration))
     }
 }

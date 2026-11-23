@@ -40,18 +40,21 @@ final class AppSettings {
         var apiKey: String = ""
         var modelID: String = ""
         var kind: Kind = .server
+        var apiMode: APIMode = .chatCompletions
 
         init(id: UUID = UUID(), name: String, baseURL: String, apiKey: String = "",
-             modelID: String = "", kind: Kind = .server) {
+             modelID: String = "", kind: Kind = .server, apiMode: APIMode = .chatCompletions) {
             self.id = id
             self.name = name
             self.baseURL = baseURL
             self.apiKey = apiKey
             self.modelID = modelID
             self.kind = kind
+            self.apiMode = apiMode
         }
 
-        // Endpoints saved before `kind` existed decode as servers.
+        // Endpoints saved before `kind` or `apiMode` existed decode as
+        // chat-completions servers.
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             id = try c.decode(UUID.self, forKey: .id)
@@ -60,6 +63,7 @@ final class AppSettings {
             apiKey = try c.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
             modelID = try c.decodeIfPresent(String.self, forKey: .modelID) ?? ""
             kind = try c.decodeIfPresent(Kind.self, forKey: .kind) ?? .server
+            apiMode = try c.decodeIfPresent(APIMode.self, forKey: .apiMode) ?? .chatCompletions
         }
     }
 
@@ -77,6 +81,10 @@ final class AppSettings {
     }
     var modelID: String {
         didSet { defaults.set(modelID, forKey: Keys.modelID); syncActiveEndpoint() }
+    }
+    /// API the active endpoint is called with (stored on the endpoint).
+    var apiMode: APIMode {
+        didSet { syncActiveEndpoint() }
     }
     var temperature: Double {
         didSet { defaults.set(temperature, forKey: Keys.temperature) }
@@ -132,6 +140,7 @@ final class AppSettings {
         baseURL = defaults.string(forKey: Keys.baseURL) ?? "http://192.168.1.100:8000"
         apiKey = defaults.string(forKey: Keys.apiKey) ?? ""
         modelID = defaults.string(forKey: Keys.modelID) ?? ""
+        apiMode = .chatCompletions
         temperature = defaults.object(forKey: Keys.temperature) as? Double ?? 0.7
         maxTokens = defaults.object(forKey: Keys.maxTokens) as? Int ?? 4096
         autoMaxTokens = defaults.object(forKey: Keys.autoMaxTokens) as? Bool ?? true
@@ -149,10 +158,14 @@ final class AppSettings {
             endpoints = saved
         }
         let savedID = defaults.string(forKey: Keys.activeEndpointID).flatMap(UUID.init(uuidString:))
-        if let savedID, endpoints.contains(where: { $0.id == savedID }) {
+        // `apiMode` is set before anything that syncs, so a sync can't overwrite
+        // the saved value with the default.
+        if let savedID, let saved = endpoints.first(where: { $0.id == savedID }) {
             activeEndpointID = savedID
+            apiMode = saved.apiMode
         } else if let first = endpoints.first(where: { $0.kind == .server }) {
             activeEndpointID = first.id
+            apiMode = first.apiMode
             baseURL = first.baseURL
             apiKey = first.apiKey
             modelID = first.modelID
@@ -197,6 +210,7 @@ final class AppSettings {
         baseURL = target.baseURL
         apiKey = target.apiKey
         modelID = target.modelID
+        apiMode = target.apiMode
         isSwitching = false
         defaults.set(id.uuidString, forKey: Keys.activeEndpointID)
     }
@@ -227,6 +241,7 @@ final class AppSettings {
         endpoints[index].baseURL = baseURL
         endpoints[index].apiKey = apiKey
         endpoints[index].modelID = modelID
+        endpoints[index].apiMode = apiMode
         saveEndpoints()
     }
 

@@ -8,9 +8,13 @@ enum LLMError: LocalizedError {
     case transport(String)
     /// The reply hit the token limit before any answer or tool call came out.
     case truncated
+    /// The server reported a failure inside a Responses API run.
+    case response(String)
 
     var errorDescription: String? {
         switch self {
+        case .response(let message):
+            return "The server reported an error: \(message)"
         case .truncated:
             return "The model used its whole token budget before giving an answer, most likely while thinking. "
                 + "Lower Thinking or raise Max tokens in Settings."
@@ -31,13 +35,16 @@ enum LLMError: LocalizedError {
 final class LLMClient {
     var baseURL: URL
     var apiKey: String?
+    /// Which API `streamChat` and `chat` call; the request type stays `ChatRequest`.
+    var apiMode: APIMode
 
-    init(baseURL: URL, apiKey: String? = nil) {
+    init(baseURL: URL, apiKey: String? = nil, apiMode: APIMode = .chatCompletions) {
         self.baseURL = baseURL
         self.apiKey = apiKey
+        self.apiMode = apiMode
     }
 
-    private var apiBase: URL {
+    var apiBase: URL {
         // Accept both "http://host:port" and "http://host:port/v1"
         if baseURL.path.hasSuffix("/v1") {
             return baseURL
@@ -45,7 +52,7 @@ final class LLMClient {
         return baseURL.appendingPathComponent("v1")
     }
 
-    private func makeRequest(path: String, method: String = "POST", body: Data? = nil) -> URLRequest {
+    func makeRequest(path: String, method: String = "POST", body: Data? = nil) -> URLRequest {
         var request = URLRequest(url: apiBase.appendingPathComponent(path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -86,6 +93,12 @@ final class LLMClient {
                     onToolCalls: @escaping ([APIToolCall]) -> Void,
                     onReasoning: @escaping (String) -> Void = { _ in },
                     onUsage: @escaping (Usage) -> Void = { _ in }) async throws {
+        if apiMode.usesResponses {
+            try await streamResponses(request, background: apiMode.isBackground,
+                                      onText: onText, onToolCalls: onToolCalls,
+                                      onReasoning: onReasoning, onUsage: onUsage)
+            return
+        }
         // Ask for a final usage chunk so the UI can show cache hits and
         // context usage. Servers that reject unknown fields can opt out.
         var request = request
@@ -193,6 +206,9 @@ final class LLMClient {
     // MARK: - Non-streaming chat (used for tool-call rounds if needed)
 
     func chat(_ request: ChatRequest) async throws -> ChatResponse {
+        if apiMode.usesResponses {
+            return try await chatResponses(request)
+        }
         var req = request
         req.stream = false
         guard let body = try? JSONEncoder().encode(req) else {

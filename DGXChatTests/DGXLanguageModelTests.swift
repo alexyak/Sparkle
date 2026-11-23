@@ -52,6 +52,7 @@ struct DGXLanguageModelTests {
                 case .toolOutput: return "toolOutput"
                 case .prompt: return "prompt"
                 case .instructions: return "instructions"
+                default: return "other"
                 }
             }.joined(separator: ",")
             let line = "in=\(usage.input.totalTokenCount) out=\(usage.output.totalTokenCount) textLen=\(snapshot.content.count) entries=[\(entries)]"

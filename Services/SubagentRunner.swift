@@ -74,6 +74,7 @@ struct SubagentEndpoint: Sendable {
     var apiKey: String?
     var model: String
     var temperature: Double
+    var apiMode: APIMode = .chatCompletions
     /// Nil leaves the reply length uncapped (Auto max tokens).
     var maxTokens: Int?
 }
@@ -150,6 +151,8 @@ final class SubagentRunner {
                                        apiKey: settings.apiKey.isEmpty ? nil : settings.apiKey,
                                        model: model,
                                        temperature: settings.temperature,
+                                       apiMode: Self.subagentAPIMode(for: settings.apiMode,
+                                                                     usesMainServer: endpointBase.isEmpty),
                                        maxTokens: limits.maxTokens ?? settings.requestMaxTokens)
 
         let label = "\(presetID): \(task.prefix(60))"
@@ -212,7 +215,8 @@ final class SubagentRunner {
                                             toolSpecs: [APITool],
                                             allowedToolNames: Set<String>,
                                             limits: SubagentLimits) async -> String {
-        let client = LLMClient(baseURL: endpoint.baseURL, apiKey: endpoint.apiKey)
+        let client = LLMClient(baseURL: endpoint.baseURL, apiKey: endpoint.apiKey,
+                               apiMode: endpoint.apiMode)
         var apiMessages: [APIMessage] = [
             APIMessage(role: "system", content: systemPrompt),
             APIMessage(role: "user", content: task)
@@ -325,6 +329,13 @@ final class SubagentRunner {
             return "Error: unknown tool '\(name)'"
         }
         return await tool.execute(arguments: arguments)
+    }
+
+    /// Sub-agents never run in background mode (they're short, in-memory loops).
+    /// A separate sub-agent server may not support Responses, so it keeps chat completions.
+    private static func subagentAPIMode(for mode: APIMode, usesMainServer: Bool) -> APIMode {
+        guard usesMainServer else { return .chatCompletions }
+        return mode == .responsesBackground ? .responses : mode
     }
 
     private static func firstNonEmpty(_ values: String?...) -> String {

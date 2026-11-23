@@ -16,6 +16,8 @@ struct DGXLanguageModel: LanguageModel {
     var baseURL: URL
     var modelName: String
     var apiKey: String?
+    /// Which API the server is called with.
+    var apiMode: APIMode = .chatCompletions
     /// How much the model may think; sent with every request to the server.
     var thinkingEffort: ThinkingEffort = .serverDefault
     /// Called with each piece of reasoning text as it streams in, so an app can
@@ -31,7 +33,7 @@ struct DGXLanguageModel: LanguageModel {
     /// The server is the lookup key, not the model name: switching models on
     /// the same server reuses one executor.
     var executorConfiguration: DGXLanguageModelExecutor.Configuration {
-        .init(baseURL: baseURL, apiKey: apiKey)
+        .init(baseURL: baseURL, apiKey: apiKey, apiMode: apiMode)
     }
 }
 
@@ -56,6 +58,7 @@ struct DGXLanguageModelExecutor: LanguageModelExecutor {
     struct Configuration: Hashable, Sendable {
         var baseURL: URL
         var apiKey: String?
+        var apiMode: APIMode = .chatCompletions
     }
 
     private let configuration: Configuration
@@ -99,7 +102,8 @@ struct DGXLanguageModelExecutor: LanguageModelExecutor {
         let configuration = configuration
         let (chunks, continuation) = AsyncThrowingStream<Chunk, Error>.makeStream()
         let producer = Task {
-            let client = LLMClient(baseURL: configuration.baseURL, apiKey: configuration.apiKey)
+            let client = LLMClient(baseURL: configuration.baseURL, apiKey: configuration.apiKey,
+                                   apiMode: configuration.apiMode)
             do {
                 try await client.streamChat(
                     chat,

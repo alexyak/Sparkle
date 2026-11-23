@@ -47,6 +47,16 @@ struct SettingsView: View {
                         TextField("Base URL", text: $settings.baseURL)
                             .urlFieldStyle()
                         SecureField("API Key (optional)", text: $settings.apiKey)
+                        Picker("API", selection: $settings.apiMode) {
+                            ForEach(APIMode.allCases) { mode in
+                                Text(mode.label).tag(mode)
+                            }
+                        }
+                        if settings.apiMode.isBackground {
+                            Text("The server keeps generating if the connection drops, and the app picks the reply back up.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                         Button {
                             testConnection()
                         } label: {

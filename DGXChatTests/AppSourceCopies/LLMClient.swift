@@ -6,9 +6,18 @@ enum LLMError: LocalizedError {
     case http(Int, String)
     case decoding(String)
     case transport(String)
+    /// The reply hit the token limit before any answer or tool call came out.
+    case truncated
+    /// The server reported a failure inside a Responses API run.
+    case response(String)
 
     var errorDescription: String? {
         switch self {
+        case .response(let message):
+            return "The server reported an error: \(message)"
+        case .truncated:
+            return "The model used its whole token budget before giving an answer, most likely while thinking. "
+                + "Lower Thinking or raise Max tokens in Settings."
         case .invalidURL:
             return "The server URL is not valid."
         case .http(let code, let body):
@@ -26,13 +35,16 @@ enum LLMError: LocalizedError {
 final class LLMClient {
     var baseURL: URL
     var apiKey: String?
+    /// Which API `streamChat` and `chat` call; the request type stays `ChatRequest`.
+    var apiMode: APIMode
 
-    init(baseURL: URL, apiKey: String? = nil) {
+    init(baseURL: URL, apiKey: String? = nil, apiMode: APIMode = .chatCompletions) {
         self.baseURL = baseURL
         self.apiKey = apiKey
+        self.apiMode = apiMode
     }
 
-    private var apiBase: URL {
+    var apiBase: URL {
         // Accept both "http://host:port" and "http://host:port/v1"
         if baseURL.path.hasSuffix("/v1") {
             return baseURL
@@ -40,7 +52,7 @@ final class LLMClient {
         return baseURL.appendingPathComponent("v1")
     }
 
-    private func makeRequest(path: String, method: String = "POST", body: Data? = nil) -> URLRequest {
+    func makeRequest(path: String, method: String = "POST", body: Data? = nil) -> URLRequest {
         var request = URLRequest(url: apiBase.appendingPathComponent(path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -81,6 +93,12 @@ final class LLMClient {
                     onToolCalls: @escaping ([APIToolCall]) -> Void,
                     onReasoning: @escaping (String) -> Void = { _ in },
                     onUsage: @escaping (Usage) -> Void = { _ in }) async throws {
+        if apiMode.usesResponses {
+            try await streamResponses(request, background: apiMode.isBackground,
+                                      onText: onText, onToolCalls: onToolCalls,
+                                      onReasoning: onReasoning, onUsage: onUsage)
+            return
+        }
         // Ask for a final usage chunk so the UI can show cache hits and
         // context usage. Servers that reject unknown fields can opt out.
         var request = request
@@ -122,6 +140,11 @@ final class LLMClient {
 
         var toolAccumulator: [Int: APIToolCall] = [:]
         let decoder = JSONDecoder()
+        // Reasoning alone doesn't count as output: a reply that stops at the
+        // token limit with only reasoning is a failure worth reporting.
+        var producedOutput = false
+        var hitLengthLimit = false
+        var toolCallsEmitted = false
 
         for try await line in bytes.lines {
             guard line.hasPrefix("data:") else { continue }
@@ -146,9 +169,11 @@ final class LLMClient {
                 onReasoning(reasoning)
             }
             if let content = choice.delta?.content, !content.isEmpty {
+                producedOutput = true
                 onText(content)
             }
             if let deltas = choice.delta?.toolCalls {
+                producedOutput = true
                 for delta in deltas {
                     let index = delta.index ?? 0
                     var existing = toolAccumulator[index] ?? APIToolCall(id: "", function: APIFunctionCall(name: "", arguments: ""))
@@ -158,18 +183,32 @@ final class LLMClient {
                     toolAccumulator[index] = existing
                 }
             }
+            if choice.finishReason == "length" { hitLengthLimit = true }
             if let reason = choice.finishReason, reason == "tool_calls" {
                 let calls = toolAccumulator.keys.sorted().map { toolAccumulator[$0]! }
                 if !calls.isEmpty {
+                    toolCallsEmitted = true
                     onToolCalls(calls)
                 }
             }
         }
+        // Some servers end with finish_reason "stop" (or just drop the stream)
+        // after streaming tool calls; flush them so the turn isn't lost.
+        if !toolCallsEmitted, !toolAccumulator.isEmpty {
+            let calls = toolAccumulator.keys.sorted().map { toolAccumulator[$0]! }
+            if calls.contains(where: { !$0.function.name.isEmpty }) {
+                onToolCalls(calls)
+            }
+        }
+        if hitLengthLimit, !producedOutput { throw LLMError.truncated }
     }
 
     // MARK: - Non-streaming chat (used for tool-call rounds if needed)
 
     func chat(_ request: ChatRequest) async throws -> ChatResponse {
+        if apiMode.usesResponses {
+            return try await chatResponses(request)
+        }
         var req = request
         req.stream = false
         guard let body = try? JSONEncoder().encode(req) else {

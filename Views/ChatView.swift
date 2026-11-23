@@ -10,6 +10,10 @@ struct ChatView: View {
     @State private var viewModel = ChatViewModel()
     @State private var draft = ""
     @State private var isAtBottom = true
+    /// True for a moment after the chat opens, while the lazy stack replaces
+    /// estimated row heights with measured ones. Any offset past the real
+    /// bottom in this window is an overshoot to correct, not a user scroll.
+    @State private var isSettlingScroll = true
     /// True while the transcript should follow the bottom edge as tokens
     /// stream in. Cleared only when the user *drags* away from the bottom;
     /// restored whenever the view reaches the bottom again. Unlike `isAtBottom`
@@ -247,42 +251,58 @@ struct ChatView: View {
         }
     }
 
+    /// Chats up to this many messages (tool steps included) are laid out eagerly.
+    private static let eagerLayoutMessageLimit = 80
+
+    /// The transcript rows, shared by the eager and lazy stacks in `messageList`.
+    @ViewBuilder
+    private var transcriptRows: some View {
+        // Tool results and the intermediate assistant steps that
+        // issue tool calls are hidden; only final answers show.
+        let visible = viewModel.messages.filter { $0.role != .tool && $0.toolCallsJSON == nil }
+        // The earlier rows always live in this one ForEach, whether
+        // or not a turn is reserved. Moving them between branches
+        // would recreate every row on send, and in a long chat the
+        // lazy stack would fall back to estimated heights and the
+        // scroll-to-top would land on the wrong offset.
+        let reservedStart = reservedTurnID.flatMap { id in
+            visible.firstIndex(where: { $0.id == id })
+        }
+        ForEach(visible[..<(reservedStart ?? visible.count)]) { transcriptRow($0) }
+        if let start = reservedStart {
+            // The newest request and its answer sit in a block at
+            // least one viewport tall, so the request can scroll
+            // all the way to the top even while the answer is
+            // still short.
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(visible[start...]) { transcriptRow($0) }
+                toolStatusRow
+            }
+            .frame(minHeight: viewportHeight.isFinite ? max(0, viewportHeight - 16) : 0,
+                   alignment: .top)
+        } else {
+            toolStatusRow
+        }
+        // Zero-height anchor at the very end of the transcript.
+        // Scrolling to it pins the bottom edge exactly, even when
+        // the last bubble is shorter than the viewport.
+        Color.clear
+            .frame(height: 1)
+            .id("bottom-anchor")
+    }
+
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    // Tool results and the intermediate assistant steps that
-                    // issue tool calls are hidden; only final answers show.
-                    let visible = viewModel.messages.filter { $0.role != .tool && $0.toolCallsJSON == nil }
-                    // The earlier rows always live in this one ForEach, whether
-                    // or not a turn is reserved. Moving them between branches
-                    // would recreate every row on send, and in a long chat the
-                    // lazy stack would fall back to estimated heights and the
-                    // scroll-to-top would land on the wrong offset.
-                    let reservedStart = reservedTurnID.flatMap { id in
-                        visible.firstIndex(where: { $0.id == id })
-                    }
-                    ForEach(visible[..<(reservedStart ?? visible.count)]) { transcriptRow($0) }
-                    if let start = reservedStart {
-                        // The newest request and its answer sit in a block at
-                        // least one viewport tall, so the request can scroll
-                        // all the way to the top even while the answer is
-                        // still short.
-                        VStack(alignment: .leading, spacing: 12) {
-                            ForEach(visible[start...]) { transcriptRow($0) }
-                            toolStatusRow
-                        }
-                        .frame(minHeight: viewportHeight.isFinite ? max(0, viewportHeight - 16) : 0,
-                               alignment: .top)
+                // Moderate chats use a plain stack: a lazy stack only estimates
+                // the heights of rows it hasn't built, so scrolling to the
+                // bottom overshot into an empty area. Very long chats stay lazy.
+                Group {
+                    if viewModel.messages.count <= Self.eagerLayoutMessageLimit {
+                        VStack(alignment: .leading, spacing: 12) { transcriptRows }
                     } else {
-                        toolStatusRow
+                        LazyVStack(alignment: .leading, spacing: 12) { transcriptRows }
                     }
-                    // Zero-height anchor at the very end of the transcript.
-                    // Scrolling to it pins the bottom edge exactly, even when
-                    // the last bubble is shorter than the viewport.
-                    Color.clear
-                        .frame(height: 1)
-                        .id("bottom-anchor")
                 }
                 .scrollTargetLayout()
                 .padding(.horizontal, horizontalPadding)
@@ -304,6 +324,12 @@ struct ChatView: View {
                 contentHeight = state.contentHeight
                 viewportHeight = state.viewportHeight
                 isAtBottom = state.atBottom
+                // Scrolled past the real end (estimated heights were too tall):
+                // pull back so the view doesn't show an empty area.
+                if isSettlingScroll, !isDragging, pinnedMessageID == nil,
+                   state.offsetY > state.contentHeight - state.viewportHeight + 8 {
+                    proxy.scrollTo("bottom-anchor", anchor: .bottom)
+                }
                 // Sticky follow intent: reaching the bottom re-arms it, and
                 // only a *user drag* away from the bottom disarms it. (A plain
                 // `atBottom` check can't drive the follow-scroll: when the
@@ -398,6 +424,18 @@ struct ChatView: View {
             }
             .onAppear {
                 proxy.scrollTo("bottom-anchor", anchor: .bottom)
+                // Opening an existing chat: the history loads after this view
+                // appears and the lazy stack only has estimated row heights, so
+                // a single scroll can land short. Retry as the rows settle.
+                for delay in [0.05, 0.15, 0.3] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        guard pinnedMessageID == nil, autoFollow else { return }
+                        proxy.scrollTo("bottom-anchor", anchor: .bottom)
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    isSettlingScroll = false
+                }
             }
         }
     }
@@ -465,57 +503,92 @@ struct ChatView: View {
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
     }
 
+    /// Unfocused and empty: one row (plus, field, send). Focused or with text:
+    /// the field gets its own full-width line and the controls drop to a second row, which also
+    /// holds the endpoint/model button. The field stays first in the same
+    /// stack either way, so it keeps focus when the layout switches.
     private var inputRow: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Menu {
-                Button("Add File…", systemImage: "doc.badge.plus") {
-                    showFileImporter = true
+        let isExpanded = inputFocused || !draft.isEmpty
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center, spacing: 10) {
+                if !isExpanded {
+                    addResourcesMenu
                 }
-                Button("Add Folder…", systemImage: "folder.badge.plus") {
-                    showFolderImporter = true
+
+                TextField("Message…", text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...6)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 8)
+                    .focused($inputFocused)
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .onSubmit(send)
+
+                if !isExpanded {
+                    sendOrStopButton
                 }
-            } label: {
-                Image(systemName: "plus")
-                    .font(.body.weight(.medium))
             }
-            .menuIndicator(.hidden)
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            .accessibilityLabel("Add resources")
 
-            TextField("Message…", text: $draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...6)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 8)
-                .focused($inputFocused)
-                .clipShape(RoundedRectangle(cornerRadius: 20))
-                .onSubmit(send)
-
-            if viewModel.isStreaming {
-                Button {
-                    viewModel.stop()
-                } label: {
-                    Image(systemName: "stop.fill")
-                        .font(.body.weight(.medium))
+            if isExpanded {
+                HStack(alignment: .center, spacing: 10) {
+                    addResourcesMenu
+                    ModelPicker()
+                    Spacer(minLength: 0)
+                    sendOrStopButton
                 }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.circle)
-                .tint(.red)
-                .accessibilityLabel("Stop generating")
-            } else {
-                Button(action: send) {
-                    Image(systemName: "arrow.up")
-                        .font(.body.weight(.semibold))
-                }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.circle)
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityLabel("Send message")
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        // Only the text line is a focus target otherwise, so taps on the
+        // composer's padding or empty glass were ignored. Buttons and the menu
+        // still win over this gesture.
+        .contentShape(Rectangle())
+        .onTapGesture { inputFocused = true }
+        .animation(.snappy(duration: 0.2), value: isExpanded)
+    }
+
+    private var addResourcesMenu: some View {
+        Menu {
+            Button("Add File…", systemImage: "doc.badge.plus") {
+                showFileImporter = true
+            }
+            Button("Add Folder…", systemImage: "folder.badge.plus") {
+                showFolderImporter = true
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.body.weight(.medium))
+        }
+        .menuIndicator(.hidden)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .accessibilityLabel("Add resources")
+    }
+
+    @ViewBuilder
+    private var sendOrStopButton: some View {
+        if viewModel.isStreaming {
+            Button {
+                viewModel.stop()
+            } label: {
+                Image(systemName: "stop.fill")
+                    .font(.body.weight(.medium))
+            }
+            .buttonStyle(.glassProminent)
+            .buttonBorderShape(.circle)
+            .tint(.red)
+            .accessibilityLabel("Stop generating")
+        } else {
+            Button(action: send) {
+                Image(systemName: "arrow.up")
+                    .font(.body.weight(.semibold))
+            }
+            .buttonStyle(.glassProminent)
+            .buttonBorderShape(.circle)
+            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel("Send message")
+        }
     }
 
     /// Slash commands whose name starts with what's typed. Only offered while

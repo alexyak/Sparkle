@@ -56,9 +56,19 @@ struct RootView: View {
                         }
                     }
                     #endif
-                    ToolbarItem(placement: .primaryAction) {
-                        ModelPicker()
+                    #if os(iOS)
+                    // Title on the same row as the buttons, left-aligned. Not on
+                    // macOS, where the window title already says "Sparkle".
+                    ToolbarItem(placement: .navigation) {
+                        Text("Sparkle")
+                            .font(.title2.weight(.bold))
+                            // The toolbar otherwise squeezes the item down to "S…".
+                            .fixedSize()
+                            .padding(.leading, 20)
+                            .accessibilityAddTraits(.isHeader)
                     }
+                    .sharedBackgroundVisibility(.hidden)
+                    #endif
                     ToolbarItem(placement: .primaryAction) {
                         settingsButton
                     }

@@ -16,6 +16,15 @@ struct DGXLanguageModel: LanguageModel {
     var baseURL: URL
     var modelName: String
     var apiKey: String?
+    /// Which API the server is called with.
+    var apiMode: APIMode = .chatCompletions
+    /// How much the model may think; sent with every request to the server.
+    var thinkingEffort: ThinkingEffort = .serverDefault
+    /// Called with each piece of reasoning text as it streams in, so an app can
+    /// show live progress without waiting for the session's transcript.
+    var onReasoning: (@Sendable (String) -> Void)?
+    /// Most tool-call rounds one turn may take (the app's "Max tool rounds" setting).
+    var maxToolRounds: Int = 8
 
     var capabilities: LanguageModelCapabilities {
         LanguageModelCapabilities([.toolCalling, .reasoning])
@@ -24,7 +33,19 @@ struct DGXLanguageModel: LanguageModel {
     /// The server is the lookup key, not the model name: switching models on
     /// the same server reuses one executor.
     var executorConfiguration: DGXLanguageModelExecutor.Configuration {
-        .init(baseURL: baseURL, apiKey: apiKey)
+        .init(baseURL: baseURL, apiKey: apiKey, apiMode: apiMode)
+    }
+}
+
+enum DGXModelError: LocalizedError {
+    case tooManyToolRounds(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .tooManyToolRounds(let limit):
+            return "Stopped after \(limit) rounds of tool calls without a final answer. "
+                + "The model may be retrying a call that keeps failing."
+        }
     }
 }
 
@@ -37,6 +58,7 @@ struct DGXLanguageModelExecutor: LanguageModelExecutor {
     struct Configuration: Hashable, Sendable {
         var baseURL: URL
         var apiKey: String?
+        var apiMode: APIMode = .chatCompletions
     }
 
     private let configuration: Configuration
@@ -56,19 +78,32 @@ struct DGXLanguageModelExecutor: LanguageModelExecutor {
     func respond(to request: LanguageModelExecutorGenerationRequest,
                  model: DGXLanguageModel,
                  streamingInto channel: LanguageModelExecutorGenerationChannel) async throws {
-        let chat = ChatRequest(
+        // The session keeps calling tools until the model answers. A model that
+        // retries the same failing call would never finish, so stop after the
+        // same number of rounds the app's own loop allows.
+        let toolRounds = request.transcript.reduce(0) { count, entry in
+            if case .toolCalls = entry { return count + 1 }
+            return count
+        }
+        if toolRounds >= model.maxToolRounds {
+            throw DGXModelError.tooManyToolRounds(model.maxToolRounds)
+        }
+
+        var chat = ChatRequest(
             model: model.modelName,
             messages: try Self.messages(from: request.transcript),
             temperature: request.generationOptions.temperature,
             maxTokens: request.generationOptions.maximumResponseTokens,
             tools: try Self.tools(from: request.enabledToolDefinitions))
+        model.thinkingEffort.apply(to: &chat)
 
         // `LLMClient` reports through synchronous callbacks, but sending on the
         // channel is async, so hop through a stream.
         let configuration = configuration
         let (chunks, continuation) = AsyncThrowingStream<Chunk, Error>.makeStream()
         let producer = Task {
-            let client = LLMClient(baseURL: configuration.baseURL, apiKey: configuration.apiKey)
+            let client = LLMClient(baseURL: configuration.baseURL, apiKey: configuration.apiKey,
+                                   apiMode: configuration.apiMode)
             do {
                 try await client.streamChat(
                     chat,
@@ -89,6 +124,7 @@ struct DGXLanguageModelExecutor: LanguageModelExecutor {
                 // The server doesn't report per-delta counts; a stream chunk is about one token.
                 await channel.send(.response(action: .appendText(text, segmentID: nil, tokenCount: 1)))
             case .reasoning(let text):
+                model.onReasoning?(text)
                 await channel.send(.reasoning(action: .appendText(text, segmentID: nil, tokenCount: 1)))
             case .toolCalls(let calls):
                 for call in calls {
@@ -110,7 +146,7 @@ struct DGXLanguageModelExecutor: LanguageModelExecutor {
     // MARK: Transcript → OpenAI messages
 
     /// Maps each transcript entry onto the chat roles the server understands.
-    /// Reasoning entries are dropped: OpenAI-style servers don't accept them back.
+    /// Reasoning and data entries are dropped: OpenAI-style servers don't accept them back.
     private static func messages(from transcript: Transcript) throws -> [APIMessage] {
         var messages: [APIMessage] = []
         for entry in transcript {
@@ -121,7 +157,7 @@ struct DGXLanguageModelExecutor: LanguageModelExecutor {
                 messages.append(APIMessage(role: "user", content: text(of: prompt.segments)))
             case .response(let response):
                 messages.append(APIMessage(role: "assistant", content: text(of: response.segments)))
-            case .reasoning:
+            case .reasoning, .data:
                 continue
             case .toolCalls(let toolCalls):
                 let calls = toolCalls.map {
@@ -133,6 +169,8 @@ struct DGXLanguageModelExecutor: LanguageModelExecutor {
             case .toolOutput(let output):
                 messages.append(APIMessage(role: "tool", content: text(of: output.segments),
                                            toolCallId: output.id))
+            @unknown default:
+                continue // entry kinds added by newer SDKs have no chat-role equivalent
             }
         }
         return messages

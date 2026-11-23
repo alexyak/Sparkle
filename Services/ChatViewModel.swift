@@ -73,7 +73,8 @@ final class ChatViewModel {
 
     var client: LLMClient? {
         guard let url = settings.serverURL else { return nil }
-        return LLMClient(baseURL: url, apiKey: settings.apiKey.isEmpty ? nil : settings.apiKey)
+        return LLMClient(baseURL: url, apiKey: settings.apiKey.isEmpty ? nil : settings.apiKey,
+                         apiMode: settings.apiMode)
     }
 
     // MARK: - Loading
@@ -559,6 +560,7 @@ final class ChatViewModel {
         let model = DGXLanguageModel(baseURL: url,
                                      modelName: settings.modelID,
                                      apiKey: settings.apiKey.isEmpty ? nil : settings.apiKey,
+                                     apiMode: settings.apiMode,
                                      thinkingEffort: settings.thinkingEffort,
                                      maxToolRounds: settings.maxToolRounds)
         do {
