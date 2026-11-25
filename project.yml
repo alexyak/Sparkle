@@ -46,5 +46,6 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ZZ677HHXGU
-        # The sandbox entitlements apply to the Mac build only.
+        # iCloud/push entitlements for iOS; sandbox + iCloud for Mac.
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphone*]": DGXChatiOS.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": DGXChatMac.entitlements

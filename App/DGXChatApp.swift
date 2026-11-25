@@ -5,7 +5,10 @@ import SwiftData
 struct DGXChatApp: App {
     let container: ModelContainer = {
         do {
-            return try ModelContainer(for: Conversation.self, ChatMessage.self, SessionResource.self)
+            // Syncs through the app's default iCloud container (private database).
+            let configuration = ModelConfiguration(cloudKitDatabase: .automatic)
+            return try ModelContainer(for: Conversation.self, ChatMessage.self, SessionResource.self,
+                                      configurations: configuration)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }

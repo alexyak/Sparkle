@@ -3,19 +3,31 @@ import SwiftData
 
 @Model
 final class Conversation {
-    @Attribute(.unique) var id: UUID
-    var title: String
+    // CloudKit sync: no unique constraints, every attribute has a default,
+    // and relationships are optional.
+    var id: UUID = UUID()
+    var title: String = "New Chat"
     var modelID: String?
     var systemPrompt: String?
-    var createdAt: Date
-    var updatedAt: Date
+    var createdAt: Date = Date.now
+    var updatedAt: Date = Date.now
 
     @Relationship(deleteRule: .cascade, inverse: \ChatMessage.conversation)
-    var messages: [ChatMessage]
+    var messagesStorage: [ChatMessage]?
 
     /// Files/folders attached to this conversation as context.
     @Relationship(deleteRule: .cascade, inverse: \SessionResource.conversation)
-    var resources: [SessionResource]
+    var resourcesStorage: [SessionResource]?
+
+    var messages: [ChatMessage] {
+        get { messagesStorage ?? [] }
+        set { messagesStorage = newValue }
+    }
+
+    var resources: [SessionResource] {
+        get { resourcesStorage ?? [] }
+        set { resourcesStorage = newValue }
+    }
 
     init(title: String = "New Chat",
          modelID: String? = nil,
@@ -27,8 +39,6 @@ final class Conversation {
         self.systemPrompt = systemPrompt
         self.createdAt = createdAt
         self.updatedAt = createdAt
-        self.messages = []
-        self.resources = []
     }
 
     var sortedMessages: [ChatMessage] {

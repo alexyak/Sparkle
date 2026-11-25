@@ -44,6 +44,17 @@ struct ChatView: View {
     @State private var showFolderImporter = false
     @FocusState private var inputFocused: Bool
 
+    init(conversation: Conversation, onCreateBranch: ((Conversation) -> Void)? = nil) {
+        self.conversation = conversation
+        self.onCreateBranch = onCreateBranch
+        // Load the history up front so the first layout already has the
+        // transcript; loading in onAppear left a blank frame and made the
+        // initial scroll-to-bottom land on estimated row heights.
+        let model = ChatViewModel()
+        model.messages = conversation.sortedMessages
+        _viewModel = State(initialValue: model)
+    }
+
     /// Horizontal inset for the transcript and input bar; tighter on iPhone
     /// where screen width is at a premium.
     private var horizontalPadding: CGFloat {
@@ -251,10 +262,7 @@ struct ChatView: View {
         }
     }
 
-    /// Chats up to this many messages (tool steps included) are laid out eagerly.
-    private static let eagerLayoutMessageLimit = 80
-
-    /// The transcript rows, shared by the eager and lazy stacks in `messageList`.
+    /// The transcript rows laid out by the stack in `messageList`.
     @ViewBuilder
     private var transcriptRows: some View {
         // Tool results and the intermediate assistant steps that
@@ -294,21 +302,17 @@ struct ChatView: View {
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                // Moderate chats use a plain stack: a lazy stack only estimates
-                // the heights of rows it hasn't built, so scrolling to the
-                // bottom overshot into an empty area. Very long chats stay lazy.
-                Group {
-                    if viewModel.messages.count <= Self.eagerLayoutMessageLimit {
-                        VStack(alignment: .leading, spacing: 12) { transcriptRows }
-                    } else {
-                        LazyVStack(alignment: .leading, spacing: 12) { transcriptRows }
-                    }
-                }
+                // Lazy so opening a chat only builds the rows on screen. The
+                // stack estimates heights of rows it hasn't built, so the
+                // scroll-to-bottom can overshoot; `isSettlingScroll` corrects it.
+                LazyVStack(alignment: .leading, spacing: 12) { transcriptRows }
                 .scrollTargetLayout()
                 .padding(.horizontal, horizontalPadding)
                 .padding(.vertical, 16)
             }
             .scrollBounceBehavior(.basedOnSize)
+            // Open at the bottom without a scrollTo against estimated heights.
+            .defaultScrollAnchor(.bottom)
 
             // Track the scroll position: whether the transcript is pinned to
             // the bottom, and whether the user has scrolled away from a pinned

@@ -6,11 +6,14 @@ import SwiftData
 /// survives app restarts.
 @Model
 final class SessionResource {
-    @Attribute(.unique) var id: UUID
-    var name: String
-    var isFolder: Bool
-    var bookmarkData: Data
-    var addedAt: Date
+    // CloudKit sync: no unique constraints; every attribute has a default.
+    // Bookmarks only resolve on the device that created them; elsewhere
+    // `readContext` reports the resource as unavailable.
+    var id: UUID = UUID()
+    var name: String = ""
+    var isFolder: Bool = false
+    var bookmarkData: Data = Data()
+    var addedAt: Date = Date.now
     var conversation: Conversation?
 
     init(name: String, isFolder: Bool, bookmarkData: Data, addedAt: Date = .now) {

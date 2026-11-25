@@ -4,9 +4,10 @@ import SwiftData
 /// One message inside a conversation.
 @Model
 final class ChatMessage {
-    @Attribute(.unique) var id: UUID
-    var roleRaw: String
-    var content: String
+    // CloudKit sync: no unique constraints; every attribute has a default.
+    var id: UUID = UUID()
+    var roleRaw: String = MessageRole.assistant.rawValue
+    var content: String = ""
     /// Tool calls requested by the assistant (JSON-encoded for storage).
     var toolCallsJSON: String?
     /// For role == "tool": the tool call id this message answers.
@@ -17,8 +18,8 @@ final class ChatMessage {
     var stepsJSON: String?
     /// Full reasoning ("thinking") text the model produced for this message.
     var reasoningText: String?
-    var createdAt: Date
-    var order: Int
+    var createdAt: Date = Date.now
+    var order: Int = 0
     var conversation: Conversation?
 
     /// SwiftData requires an explicit init (no memberwise for @Model with defaults).
